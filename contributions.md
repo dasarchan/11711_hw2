@@ -7,10 +7,10 @@
 
 ## Data annotation
 * Archan: 
-* Emily: inter annotator agreement
-* Zhijie: pipeline to generate question and answer pairs
+* Emily: annotated random subset of questions
+* Zhijie: pipeline to generate question and answer pairs, annotated random subset of questions
 
-## Modeling
-* Archan: rag and non rag baseline models
-* Emily:
-* Zhijie:
+## Modeling and analysis
+* Archan: models for non rag, rag baseline, variations
+* Emily: results, analysis
+* Zhijie: analysis
