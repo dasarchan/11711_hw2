@@ -1,3 +1,22 @@
+# Cache directories
+embedding_cache/
+__pycache__/
+.pytest_cache/
+
+# Model files
+*.gguf
+
+# Environment
+.env
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+.DS_Store
+
 litellm_key.txt
 db/
 models/
