@@ -52,7 +52,7 @@ class RAGPipeline:
             self.documents = self.df['text'].fillna('').astype(str).tolist()
 
             # Load cached embeddings if available
-            if False:
+            if os.path.exists(EMBEDDINGS_CACHE_PATH):
                 with open(EMBEDDINGS_CACHE_PATH, 'rb') as f:
                     all_embeddings = pickle.load(f)
             else:
@@ -99,27 +99,32 @@ class RAGPipeline:
 
         # Create different prompt templates and chains based on use_rag
         if self.use_rag:
-            prompt_template = """[INST] Use the following pieces of context to answer the question at the end. 
-            If you don't know the answer, just say that you don't know, don't try to make up an answer.
-
-            Try to be as concise as possible while still answering the question. Don't add any extra, unecessary words. No notes, no explanations, nothing but the answer.
-
-            Try to rely on the context to answer the question, but the context will not always contain the answer.
-""" + ("""
-            Here are some examples of good question/answer pairs to follow:
-
-            Question: Who is Pittsburgh named after?
-            Answer: William Pitt
-
-            Question: What famous machine learning venue had its first conference in Pittsburgh in 1980?
-            Answer: ICML
-
-            Question: What musical artist is performing at PPG Arena on October 13?
-            Answer: Billie Eilish
-""" if few_shot else "") + """
-            Context: {context}
-
-            Question: {question} [/INST]
+            prompt_template = """[INST] Answer the question based on the provided context.
+            
+            Instructions:
+            - Use ONLY the information in the context to answer
+            - Provide direct, factual answers without explanations or commentary
+            - Match the brevity of the example answers exactly
+            - Respond with just the answer - no preamble, no extra words
+            - Format your answer as a simple statement
+            """ + ("""
+                Examples:
+                
+                Context: Pittsburgh was named after William Pitt, the first Earl of Chatham.
+                Question: Who is Pittsburgh named after?
+                Answer: William Pitt
+                
+                Context: The first International Conference on Machine Learning (ICML) was held in Pittsburgh in 1980 at Carnegie Mellon University.
+                Question: What famous machine learning venue had its first conference in Pittsburgh in 1980?
+                Answer: ICML
+                
+                Context: Upcoming concerts at PPG Arena include Taylor Swift on October 7 and Billie Eilish on October 13.
+                Question: What musical artist is performing at PPG Arena on October 13?
+                Answer: Billie Eilish
+            """ if few_shot else "") + """
+                Context: {context}
+                
+                Question: {question} [/INST]
             
             Answer: """
             PROMPT = PromptTemplate(
@@ -165,27 +170,71 @@ class RAGPipeline:
                 prompt=PROMPT
             )
     
+    def make_answer_concise(self, verbose_answer: str, question: str) -> str:
+        """Make a verbose answer more concise using the LLM."""
+        prompt = """[INST] Make the following answer more concise. Follow these rules exactly:
+- Remove all explanations and commentary
+- Do not explain yourself or the answer, just provide the answer
+- Keep only the direct factual answer
+- No full sentences, fit your answer one line.
+- No preamble or extra words
+- Remove irrelevant details from the answer (explanation:, additional information:, note: etc.)
+- Match the brevity of these examples:
+
+Example question/answer pairs:
+
+Question: Who is Pittsburgh named after?
+Long answer: Pittsburgh, the city in Pennsylvania, was named in honor of William Pitt, who was the first Earl of Chatham and a British statesman. 
+
+Additional information: He was an important figure in British politics during the 18th century.
+
+Concise answer: William Pitt
+
+Question: What famous machine learning venue had its first conference in Pittsburgh in 1980?
+Long answer: The International Conference on Machine Learning, commonly known as ICML, held its inaugural conference at Carnegie Mellon University in Pittsburgh back in 1980. This conference has since become one of the premier venues for machine learning research.
+
+Concise answer: ICML
+
+Question: When was Carnegie Mellon University founded?
+Long answer: Carnegie Mellon University was founded in 1900, by Andrew Carnegie, as the Carnegie Institute of Technology.
+
+Concise answer: 1900
+-------
+Question/answer to refine:
+
+Original question: {question}
+
+Long answer: {answer}
+
+Concise answer: [/INST]
+"""
+        result = self.llm.invoke(prompt.format(question=question, answer=verbose_answer))
+        return result.strip()
+
     def ask(self, question: str) -> dict:
         """Ask a question and get an answer based on the retrieved context."""
         if self.use_rag:
             # Get the result and context for RAG mode
             result = self.qa_chain.invoke({"query": question})
             
+            # Make the answer more concise
+            concise_answer = self.make_answer_concise(result["result"], question)
+            
             # Print the answer and the context used
             print("\nQuestion:", question)
-            print("\nAnswer:", result["result"])
-            # print("\nContext used for this answer:")
+            print("\nNon-concise answer:", result["result"])
+            print("\nAnswer:", concise_answer)
+            print("\nContext used for this answer:")
+            
             source_texts = []
-            # for doc in result["source_documents"]:
-            #     print("\n---")
-            #     print(doc.page_content)
-            #     source_texts.append(doc.page_content)
+            for doc in result["source_documents"]:
+                source_texts.append(doc.page_content)
             
             # Pad source_texts to always have 5 elements (since k=5)
             source_texts.extend([""] * (5 - len(source_texts)))
             
             return {
-                "answer": result["result"],
+                "answer": concise_answer,
                 "source_1": source_texts[0],
                 "source_2": source_texts[1],
                 "source_3": source_texts[2],
@@ -195,9 +244,10 @@ class RAGPipeline:
         else:
             # Simple question-answering without context
             result = self.qa_chain.invoke({"question": question})
-            print("\nAnswer:", result["text"])
+            concise_answer = self.make_answer_concise(result["text"], question)
+            print("\nAnswer:", concise_answer)
             return {
-                "answer": result["text"],
+                "answer": concise_answer,
                 "source_1": "",
                 "source_2": "",
                 "source_3": "",
@@ -301,42 +351,45 @@ if __name__ == "__main__":
     good_embedding_model = "BAAI/bge-large-en-v1.5"
     bad_embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
 
-    # Run RAG with bad embeddings
-    print("\nRunning RAG pipeline with bad embeddings...")
-    pipeline_rag_bad_embedding = RAGPipeline(database, use_rag=True, embedding_model=bad_embedding_model)
-    batch_ask_and_save_csv(pipeline_rag_bad_embedding, questions, "results_rag_bad_embedding.csv")
-    del pipeline_rag_bad_embedding
-    torch.cuda.empty_cache()
+    # run on test set
+
+    # # Run RAG with bad embeddings
+    # print("\nRunning RAG pipeline with bad embeddings...")
+    # pipeline_rag_bad_embedding = RAGPipeline(database, use_rag=True, embedding_model=bad_embedding_model)
+    # batch_ask_and_save_csv(pipeline_rag_bad_embedding, questions, "results_rag_bad_embedding.csv")
+    # del pipeline_rag_bad_embedding
+    # torch.cuda.empty_cache()
     
-    # Run baseline (no RAG)
-    print("\nRunning baseline pipeline...")
-    pipeline_baseline = RAGPipeline(database, use_rag=False, embedding_model=good_embedding_model)
-    batch_ask_and_save_csv(pipeline_baseline, questions, "results_baseline.csv")
-    del pipeline_baseline
-    torch.cuda.empty_cache()
+    # # Run baseline (no RAG)
+    # print("\nRunning baseline pipeline...")
+    # pipeline_baseline = RAGPipeline(database, use_rag=False, embedding_model=good_embedding_model)
+    # batch_ask_and_save_csv(pipeline_baseline, questions, "results_baseline.csv")
+    # del pipeline_baseline
+    # torch.cuda.empty_cache()
 
     # Run RAG with few-shot and good embeddings
-    print("\nRunning RAG pipeline with few-shot and good embeddings...")
+    test_questions = pd.read_csv("test_set.csv", header=None)[0].tolist()
+    print("\nRunning RAG pipeline with few-shot and good embeddings, on test set")
     pipeline_rag_few_shot = RAGPipeline(database, use_rag=True, embedding_model=good_embedding_model, few_shot=True)
-    batch_ask_and_save_csv(pipeline_rag_few_shot, questions, "results_rag_few_shot.csv")
+    batch_ask_and_save_csv(pipeline_rag_few_shot, test_questions, "test_set_results1.csv")
     del pipeline_rag_few_shot
     torch.cuda.empty_cache()
 
-    # Run RAG with good embeddings (no few-shot)
-    print("\nRunning RAG pipeline with good embeddings...")
-    pipeline_rag = RAGPipeline(database, use_rag=True, embedding_model=good_embedding_model, few_shot=False)
-    batch_ask_and_save_csv(pipeline_rag, questions, "results_rag.csv")
-    del pipeline_rag
-    torch.cuda.empty_cache()
+    # # Run RAG with good embeddings (no few-shot)
+    # print("\nRunning RAG pipeline with good embeddings...")
+    # pipeline_rag = RAGPipeline(database, use_rag=True, embedding_model=good_embedding_model, few_shot=False)
+    # batch_ask_and_save_csv(pipeline_rag, questions, "results_rag.csv")
+    # del pipeline_rag
+    # torch.cuda.empty_cache()
 
 
 
-    # Run RAG with few-shot and bad embeddings
-    print("\nRunning RAG pipeline with few-shot and bad embeddings...")
-    pipeline_rag_few_shot_bad_embedding = RAGPipeline(database, use_rag=True, embedding_model=bad_embedding_model, few_shot=True)
-    batch_ask_and_save_csv(pipeline_rag_few_shot_bad_embedding, questions, "results_rag_few_shot_bad_embedding.csv")
-    del pipeline_rag_few_shot_bad_embedding
-    torch.cuda.empty_cache()
+    # # Run RAG with few-shot and bad embeddings
+    # print("\nRunning RAG pipeline with few-shot and bad embeddings...")
+    # pipeline_rag_few_shot_bad_embedding = RAGPipeline(database, use_rag=True, embedding_model=bad_embedding_model, few_shot=True)
+    # batch_ask_and_save_csv(pipeline_rag_few_shot_bad_embedding, questions, "results_rag_few_shot_bad_embedding.csv")
+    # del pipeline_rag_few_shot_bad_embedding
+    # torch.cuda.empty_cache()
 
     print("\nAll pipelines completed successfully!")
 

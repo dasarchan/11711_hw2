@@ -1,7 +1,2 @@
 question_index,question,error
-19,What new dishes are being offered at Hofbräuhaus Pittsburgh during Restaurant Week?,Requested tokens (5218) exceed context window of 4096
-23,What is included in the 'Dinner for 2' option at Khalil’s Middle Eastern Restaurant?,Requested tokens (4240) exceed context window of 4096
-63,What is the address of J Marshall Construction Inc.?,Requested tokens (4438) exceed context window of 4096
-78,In what year did the Allegheny Base Ball Club of Pittsburgh first begin playing as a founding member of the American Association?,Requested tokens (4964) exceed context window of 4096
-130,What dates are listed for Gender Equity Commission agendas?,Requested tokens (4598) exceed context window of 4096
-198,What is the price of the Restaurant Week Special at LeMont Pittsburgh?,Requested tokens (4695) exceed context window of 4096
+478,"Who was highlighted as a lifelong member of the Steelers in ""On a Pedestal, Spring 2022""?",Requested tokens (9221) exceed context window of 8192
