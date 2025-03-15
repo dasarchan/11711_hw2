@@ -86,10 +86,10 @@ class RAGPipeline:
         self.llm = LlamaCpp(
             model_path=model_path,
             n_gpu_layers=-1,  # Use all layers on GPU
-            n_ctx=4096,       # Context window
+            n_ctx=8192,       # Context window
             n_batch=512,      # Batch size for prompt processing
             temperature=0.1,
-            max_tokens=2048,
+            max_tokens=512,
             top_p=0.95,
             verbose=True,
             n_threads=8,      # Number of CPU threads
@@ -101,6 +101,10 @@ class RAGPipeline:
         if self.use_rag:
             prompt_template = """[INST] Use the following pieces of context to answer the question at the end. 
             If you don't know the answer, just say that you don't know, don't try to make up an answer.
+
+            Try to be as concise as possible while still answering the question. Don't add any extra, unecessary words. No notes, no explanations, nothing but the answer.
+
+            Try to rely on the context to answer the question, but the context will not always contain the answer.
 """ + ("""
             Here are some examples of good question/answer pairs to follow:
 
@@ -168,13 +172,14 @@ class RAGPipeline:
             result = self.qa_chain.invoke({"query": question})
             
             # Print the answer and the context used
+            print("\nQuestion:", question)
             print("\nAnswer:", result["result"])
-            print("\nContext used for this answer:")
+            # print("\nContext used for this answer:")
             source_texts = []
-            for doc in result["source_documents"]:
-                print("\n---")
-                print(doc.page_content)
-                source_texts.append(doc.page_content)
+            # for doc in result["source_documents"]:
+            #     print("\n---")
+            #     print(doc.page_content)
+            #     source_texts.append(doc.page_content)
             
             # Pad source_texts to always have 5 elements (since k=5)
             source_texts.extend([""] * (5 - len(source_texts)))
